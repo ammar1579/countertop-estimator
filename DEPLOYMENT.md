@@ -2,6 +2,20 @@
 
 This app is prepared for Google Cloud Run with Cloud SQL for MySQL.
 
+## Domain Boundary
+
+The marketing website stays on Cloudways:
+
+- `quickquartz.ca` remains on Cloudways.
+- `www.quickquartz.ca` remains on Cloudways.
+- Do not change root/apex DNS records.
+- Do not change `www` DNS records.
+
+Only the app subdomain maps to Cloud Run:
+
+- `app.quickquartz.ca` should point to the Cloud Run service.
+- Add only the DNS record Google provides for `app.quickquartz.ca`.
+
 Official Google references used for this setup:
 
 - Cloud Run container runtime contract: https://docs.cloud.google.com/run/docs/container-contract
@@ -25,6 +39,17 @@ The build creates:
 ## Cloud SQL
 
 Create a Cloud SQL MySQL instance in the same region as Cloud Run where possible.
+
+Recommended production values:
+
+- GCP project: `quick-quartz-app`
+- Region: `us-central1`
+- Cloud Run service: `countertop-estimator`
+- Artifact Registry repository: `countertop-estimator`
+- Cloud SQL instance: `quick-quartz-db`
+- Database name: `quickquartz`
+- Secret Manager database URL secret: `countertop-estimator-database-url`
+- Secret Manager JWT secret: `countertop-estimator-jwt-secret`
 
 Cloud SQL connection name format:
 
@@ -50,20 +75,20 @@ Create Secret Manager secrets:
 
 ```bash
 printf '%s' 'mysql://DB_USER:DB_PASSWORD@localhost/quickquartz?socketPath=/cloudsql/PROJECT_ID:REGION:INSTANCE' \
-  | gcloud secrets create quick-quartz-db-url --data-file=-
+  | gcloud secrets create countertop-estimator-database-url --data-file=-
 
 openssl rand -hex 32 \
-  | gcloud secrets create quick-quartz-jwt-secret --data-file=-
+  | gcloud secrets create countertop-estimator-jwt-secret --data-file=-
 ```
 
 If the secrets already exist:
 
 ```bash
 printf '%s' 'mysql://DB_USER:DB_PASSWORD@localhost/quickquartz?socketPath=/cloudsql/PROJECT_ID:REGION:INSTANCE' \
-  | gcloud secrets versions add quick-quartz-db-url --data-file=-
+  | gcloud secrets versions add countertop-estimator-database-url --data-file=-
 
 openssl rand -hex 32 \
-  | gcloud secrets versions add quick-quartz-jwt-secret --data-file=-
+  | gcloud secrets versions add countertop-estimator-jwt-secret --data-file=-
 ```
 
 ## One-Time GCP Setup
@@ -71,7 +96,7 @@ openssl rand -hex 32 \
 ```bash
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com sqladmin.googleapis.com secretmanager.googleapis.com
 
-gcloud artifacts repositories create quick-quartz \
+gcloud artifacts repositories create countertop-estimator \
   --repository-format=docker \
   --location=us-central1
 ```
@@ -110,15 +135,21 @@ Edit substitutions in `cloudbuild.yaml`, especially:
 
 - `_REGION`
 - `_SERVICE`
+- `_REPOSITORY`
 - `_CLOUDSQL_INSTANCE`
 - `_CORS_ORIGINS`
 - `_RUNTIME_SERVICE_ACCOUNT`
+- `_DB_SECRET`
+- `_JWT_SECRET`
 - `_ADMIN_EMAILS`
 
 Then run:
 
 ```bash
-gcloud builds submit --region=us-central1 --config=cloudbuild.yaml
+gcloud builds submit \
+  --region=us-central1 \
+  --config=cloudbuild.yaml \
+  --substitutions=_REGION=us-central1,_SERVICE=countertop-estimator,_REPOSITORY=countertop-estimator,_IMAGE=app,_CLOUDSQL_INSTANCE=PROJECT_ID:us-central1:quick-quartz-db,_CORS_ORIGINS=https://app.quickquartz.ca,_RUNTIME_SERVICE_ACCOUNT=countertop-estimator-run@PROJECT_ID.iam.gserviceaccount.com,_DB_SECRET=countertop-estimator-database-url,_JWT_SECRET=countertop-estimator-jwt-secret,_ADMIN_EMAILS=owner@example.com
 ```
 
 Cloud Run will send traffic to port `8080`, and the app listens on `0.0.0.0:${PORT}`.
@@ -128,21 +159,21 @@ Cloud Run will send traffic to port `8080`, and the app listens on `0.0.0.0:${PO
 Migrations are not run automatically on app startup. Use a Cloud Run Job with the production image:
 
 ```bash
-IMAGE_URL="us-central1-docker.pkg.dev/PROJECT_ID/quick-quartz/app:latest"
+IMAGE_URL="us-central1-docker.pkg.dev/PROJECT_ID/countertop-estimator/app:latest"
 
-gcloud run jobs deploy quick-quartz-migrate \
+gcloud run jobs deploy countertop-estimator-migrate \
   --image="$IMAGE_URL" \
   --region=us-central1 \
-  --service-account=quick-quartz-run@PROJECT_ID.iam.gserviceaccount.com \
+  --service-account=countertop-estimator-run@PROJECT_ID.iam.gserviceaccount.com \
   --set-cloudsql-instances=PROJECT_ID:us-central1:quick-quartz-db \
-  --set-secrets=DATABASE_URL=quick-quartz-db-url:latest \
+  --set-secrets=DATABASE_URL=countertop-estimator-database-url:latest \
   --set-env-vars=NODE_ENV=production \
   --command=node \
   --args=dist/scripts/migrate.js \
   --max-retries=0 \
   --task-timeout=10m
 
-gcloud run jobs execute quick-quartz-migrate --region=us-central1 --wait
+gcloud run jobs execute countertop-estimator-migrate --region=us-central1 --wait
 ```
 
 Or run migrations from a trusted machine that can reach Cloud SQL. For a direct local run through Cloud SQL Auth Proxy:
@@ -175,10 +206,14 @@ DATABASE_URL=mysql://DB_USER:DB_PASSWORD@127.0.0.1:3306/quickquartz pnpm promote
 
 For a Cloud Run Job version, use `GOOGLE_CLOUD_LAUNCH_CHECKLIST.md`.
 
+## Docker Verification
+
+Docker Desktop is helpful for local image testing, but it is not required before the first Cloud Build deployment. Cloud Build can build the Docker image remotely from the submitted source or a GitHub-connected repository, push it to Artifact Registry, and deploy it to Cloud Run.
+
 ## Post-Deploy Checks
 
 ```bash
-SERVICE_URL="$(gcloud run services describe quick-quartz-app --region=us-central1 --format='value(status.url)')"
+SERVICE_URL="$(gcloud run services describe countertop-estimator --region=us-central1 --format='value(status.url)')"
 curl "${SERVICE_URL}/health"
 ```
 

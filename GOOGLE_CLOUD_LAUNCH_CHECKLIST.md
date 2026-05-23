@@ -14,22 +14,39 @@ Official references:
 - Cloud Run Jobs can run one-off container tasks: https://docs.cloud.google.com/run/docs/create-jobs
 - Cloud Run Jobs can be executed with `gcloud run jobs execute`: https://docs.cloud.google.com/run/docs/execute/jobs
 
+## Domain Boundary
+
+The public marketing website stays on Cloudways:
+
+- `quickquartz.ca` remains on Cloudways.
+- `www.quickquartz.ca` remains on Cloudways.
+- Do not change the root/apex DNS records for `quickquartz.ca`.
+- Do not change the `www` DNS records.
+
+Only the app subdomain points to Google Cloud Run:
+
+- `app.quickquartz.ca` maps to the Cloud Run service.
+- Add only the DNS record Google provides for `app.quickquartz.ca`.
+
 ## 1. Set Project And Variables
 
 ```bash
 gcloud auth login
-gcloud config set project YOUR_PROJECT_ID
+gcloud config set project quick-quartz-app
 
 export PROJECT_ID="$(gcloud config get-value project)"
 export REGION="us-central1"
-export SERVICE="quick-quartz-app"
-export REPOSITORY="quick-quartz"
+export SERVICE="countertop-estimator"
+export REPOSITORY="countertop-estimator"
 export IMAGE="app"
 export INSTANCE="quick-quartz-db"
 export DB_NAME="quickquartz"
 export DB_USER="quickquartz"
 export DB_PASSWORD="$(openssl rand -base64 32 | tr -d '/+=' | cut -c1-32)"
-export ADMIN_EMAILS="owner@example.com"
+export ADMIN_EMAILS="YOUR_ADMIN_EMAIL@example.com"
+export APP_DOMAIN="app.quickquartz.ca"
+export DB_SECRET="countertop-estimator-database-url"
+export JWT_SECRET_NAME="countertop-estimator-jwt-secret"
 ```
 
 Use a URL-safe generated `DB_PASSWORD` as shown above so the MySQL URL does not need manual URL encoding.
@@ -95,11 +112,11 @@ echo "$CLOUDSQL_CONNECTION"
 export DATABASE_URL="mysql://${DB_USER}:${DB_PASSWORD}@localhost/${DB_NAME}?socketPath=/cloudsql/${CLOUDSQL_CONNECTION}"
 export JWT_SECRET="$(openssl rand -hex 32)"
 
-printf '%s' "$DATABASE_URL" | gcloud secrets create quick-quartz-db-url \
+printf '%s' "$DATABASE_URL" | gcloud secrets create "$DB_SECRET" \
   --data-file=- \
   --replication-policy=automatic
 
-printf '%s' "$JWT_SECRET" | gcloud secrets create quick-quartz-jwt-secret \
+printf '%s' "$JWT_SECRET" | gcloud secrets create "$JWT_SECRET_NAME" \
   --data-file=- \
   --replication-policy=automatic
 ```
@@ -107,17 +124,17 @@ printf '%s' "$JWT_SECRET" | gcloud secrets create quick-quartz-jwt-secret \
 If the secrets already exist, add new versions instead:
 
 ```bash
-printf '%s' "$DATABASE_URL" | gcloud secrets versions add quick-quartz-db-url --data-file=-
-printf '%s' "$JWT_SECRET" | gcloud secrets versions add quick-quartz-jwt-secret --data-file=-
+printf '%s' "$DATABASE_URL" | gcloud secrets versions add "$DB_SECRET" --data-file=-
+printf '%s' "$JWT_SECRET" | gcloud secrets versions add "$JWT_SECRET_NAME" --data-file=-
 ```
 
 ## 6. Create Runtime Service Account
 
 ```bash
-gcloud iam service-accounts create quick-quartz-run \
-  --display-name="Quick Quartz Cloud Run runtime"
+gcloud iam service-accounts create countertop-estimator-run \
+  --display-name="Countertop Estimator Cloud Run runtime"
 
-export RUNTIME_SERVICE_ACCOUNT="quick-quartz-run@${PROJECT_ID}.iam.gserviceaccount.com"
+export RUNTIME_SERVICE_ACCOUNT="countertop-estimator-run@${PROJECT_ID}.iam.gserviceaccount.com"
 ```
 
 Grant runtime access to Cloud SQL and required secrets:
@@ -127,11 +144,11 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:${RUNTIME_SERVICE_ACCOUNT}" \
   --role="roles/cloudsql.client"
 
-gcloud secrets add-iam-policy-binding quick-quartz-db-url \
+gcloud secrets add-iam-policy-binding "$DB_SECRET" \
   --member="serviceAccount:${RUNTIME_SERVICE_ACCOUNT}" \
   --role="roles/secretmanager.secretAccessor"
 
-gcloud secrets add-iam-policy-binding quick-quartz-jwt-secret \
+gcloud secrets add-iam-policy-binding "$JWT_SECRET_NAME" \
   --member="serviceAccount:${RUNTIME_SERVICE_ACCOUNT}" \
   --role="roles/secretmanager.secretAccessor"
 ```
@@ -169,7 +186,7 @@ Do not deploy until you are ready. When ready, run:
 gcloud builds submit \
   --region="$REGION" \
   --config=cloudbuild.yaml \
-  --substitutions=_REGION="$REGION",_SERVICE="$SERVICE",_REPOSITORY="$REPOSITORY",_IMAGE="$IMAGE",_CLOUDSQL_INSTANCE="$CLOUDSQL_CONNECTION",_CORS_ORIGINS="https://YOUR_DOMAIN_OR_SERVICE_URL",_RUNTIME_SERVICE_ACCOUNT="$RUNTIME_SERVICE_ACCOUNT",_ADMIN_EMAILS="$ADMIN_EMAILS"
+  --substitutions=_REGION="$REGION",_SERVICE="$SERVICE",_REPOSITORY="$REPOSITORY",_IMAGE="$IMAGE",_CLOUDSQL_INSTANCE="$CLOUDSQL_CONNECTION",_CORS_ORIGINS="https://${APP_DOMAIN}",_RUNTIME_SERVICE_ACCOUNT="$RUNTIME_SERVICE_ACCOUNT",_DB_SECRET="$DB_SECRET",_JWT_SECRET="$JWT_SECRET_NAME",_ADMIN_EMAILS="$ADMIN_EMAILS"
 ```
 
 After deploy:
@@ -188,19 +205,19 @@ After the first image has been built and pushed, create or update a Cloud Run Jo
 ```bash
 export IMAGE_URL="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}:latest"
 
-gcloud run jobs deploy quick-quartz-migrate \
+gcloud run jobs deploy countertop-estimator-migrate \
   --image="$IMAGE_URL" \
   --region="$REGION" \
   --service-account="$RUNTIME_SERVICE_ACCOUNT" \
   --set-cloudsql-instances="$CLOUDSQL_CONNECTION" \
-  --set-secrets=DATABASE_URL=quick-quartz-db-url:latest \
+  --set-secrets=DATABASE_URL="${DB_SECRET}:latest" \
   --set-env-vars=NODE_ENV=production \
   --command=node \
   --args=dist/scripts/migrate.js \
   --max-retries=0 \
   --task-timeout=10m
 
-gcloud run jobs execute quick-quartz-migrate \
+gcloud run jobs execute countertop-estimator-migrate \
   --region="$REGION" \
   --wait
 ```
@@ -227,19 +244,19 @@ If a user already exists and needs promotion, use the bundled promotion script w
 export OWNER_EMAIL="owner@example.com"
 export IMAGE_URL="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}:latest"
 
-gcloud run jobs deploy quick-quartz-promote-admin \
+gcloud run jobs deploy countertop-estimator-promote-admin \
   --image="$IMAGE_URL" \
   --region="$REGION" \
   --service-account="$RUNTIME_SERVICE_ACCOUNT" \
   --set-cloudsql-instances="$CLOUDSQL_CONNECTION" \
-  --set-secrets=DATABASE_URL=quick-quartz-db-url:latest \
+  --set-secrets=DATABASE_URL="${DB_SECRET}:latest" \
   --set-env-vars=NODE_ENV=production \
   --command=node \
   --args=dist/scripts/promote-admin.js,"$OWNER_EMAIL" \
   --max-retries=0 \
   --task-timeout=5m
 
-gcloud run jobs execute quick-quartz-promote-admin \
+gcloud run jobs execute countertop-estimator-promote-admin \
   --region="$REGION" \
   --wait
 ```
@@ -253,12 +270,10 @@ DATABASE_URL="mysql://${DB_USER}:${DB_PASSWORD}@127.0.0.1:3307/${DB_NAME}" pnpm 
 
 ## 11. Connect A Custom Domain
 
-For production, prefer HTTPS Load Balancing or Firebase Hosting in front of Cloud Run if you need mature custom-domain controls.
-
-For a simple Cloud Run domain mapping in supported regions:
+Only map the app subdomain. Leave `quickquartz.ca` and `www.quickquartz.ca` on Cloudways.
 
 ```bash
-export DOMAIN="app.example.com"
+export DOMAIN="app.quickquartz.ca"
 
 gcloud beta run domain-mappings create \
   --service="$SERVICE" \
@@ -270,8 +285,14 @@ gcloud beta run domain-mappings describe \
   --region="$REGION"
 ```
 
-Add the returned DNS records at your DNS provider, then verify:
+Add only the DNS record returned for `app.quickquartz.ca` at your DNS provider. Do not edit root or `www` records.
+
+Then verify:
 
 ```bash
 curl "https://${DOMAIN}/health"
 ```
+
+## Docker Verification
+
+Docker Desktop is useful for local image testing, but it is not mandatory before the first Cloud Build deployment. Cloud Build builds the Docker image remotely from the submitted source or from the GitHub-connected repository, then pushes it to Artifact Registry and deploys it to Cloud Run.

@@ -2,26 +2,30 @@
 #
 # Required substitutions for manual builds:
 #   _REGION=us-central1
-#   _SERVICE=quick-quartz-app
-#   _REPOSITORY=quick-quartz
+#   _SERVICE=countertop-estimator
+#   _REPOSITORY=countertop-estimator
 #   _IMAGE=app
 #   _CLOUDSQL_INSTANCE=PROJECT_ID:REGION:INSTANCE
-#   _CORS_ORIGINS=https://your-service-url-or-domain
-#   _RUNTIME_SERVICE_ACCOUNT=quick-quartz-run@PROJECT_ID.iam.gserviceaccount.com
+#   _CORS_ORIGINS=https://app.quickquartz.ca
+#   _RUNTIME_SERVICE_ACCOUNT=countertop-estimator-run@PROJECT_ID.iam.gserviceaccount.com
+#   _DB_SECRET=countertop-estimator-database-url
+#   _JWT_SECRET=countertop-estimator-jwt-secret
 #   _ADMIN_EMAILS=owner@example.com
 #
 # Required Secret Manager secrets:
-#   quick-quartz-db-url
-#   quick-quartz-jwt-secret
+#   countertop-estimator-database-url
+#   countertop-estimator-jwt-secret
 
 substitutions:
   _REGION: us-central1
-  _SERVICE: quick-quartz-app
-  _REPOSITORY: quick-quartz
+  _SERVICE: countertop-estimator
+  _REPOSITORY: countertop-estimator
   _IMAGE: app
   _CLOUDSQL_INSTANCE: PROJECT_ID:us-central1:quick-quartz-db
-  _CORS_ORIGINS: https://quick-quartz.example.com
-  _RUNTIME_SERVICE_ACCOUNT: quick-quartz-run@PROJECT_ID.iam.gserviceaccount.com
+  _CORS_ORIGINS: https://app.quickquartz.ca
+  _RUNTIME_SERVICE_ACCOUNT: countertop-estimator-run@PROJECT_ID.iam.gserviceaccount.com
+  _DB_SECRET: countertop-estimator-database-url
+  _JWT_SECRET: countertop-estimator-jwt-secret
   _ADMIN_EMAILS: owner@example.com
 
 steps:
@@ -63,7 +67,7 @@ steps:
       - --timeout=60s
       - --service-account=${_RUNTIME_SERVICE_ACCOUNT}
       - --add-cloudsql-instances=${_CLOUDSQL_INSTANCE}
-      - --set-secrets=DATABASE_URL=quick-quartz-db-url:latest,JWT_SECRET=quick-quartz-jwt-secret:latest
+      - --set-secrets=DATABASE_URL=${_DB_SECRET}:latest,JWT_SECRET=${_JWT_SECRET}:latest
       - --set-env-vars=^|^NODE_ENV=production|PORT=8080|ALLOW_SIGNUPS=false|ALLOW_FIRST_USER_ADMIN=false|COOKIE_SECURE=true|COOKIE_SAME_SITE=lax|TRUST_PROXY=1|CORS_ORIGINS=${_CORS_ORIGINS}|ADMIN_EMAILS=${_ADMIN_EMAILS}
 
 images:
