@@ -1,0 +1,72 @@
+# Quick Quartz Cloud Build pipeline for Google Cloud Run.
+#
+# Required substitutions for manual builds:
+#   _REGION=us-central1
+#   _SERVICE=quick-quartz-app
+#   _REPOSITORY=quick-quartz
+#   _IMAGE=app
+#   _CLOUDSQL_INSTANCE=PROJECT_ID:REGION:INSTANCE
+#   _CORS_ORIGINS=https://your-service-url-or-domain
+#
+# Required Secret Manager secrets:
+#   quick-quartz-db-url
+#   quick-quartz-jwt-secret
+
+substitutions:
+  _REGION: us-central1
+  _SERVICE: quick-quartz-app
+  _REPOSITORY: quick-quartz
+  _IMAGE: app
+  _CLOUDSQL_INSTANCE: $PROJECT_ID:us-central1:quick-quartz-db
+  _CORS_ORIGINS: https://quick-quartz.example.com
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: build-image
+    args:
+      - build
+      - --tag=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}:$COMMIT_SHA
+      - --tag=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}:latest
+      - --cache-from=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}:latest
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: push-image
+    waitFor: [build-image]
+    args:
+      - push
+      - --all-tags
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: deploy
+    waitFor: [push-image]
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}:$COMMIT_SHA
+      - --region=${_REGION}
+      - --platform=managed
+      - --allow-unauthenticated
+      - --port=8080
+      - --memory=512Mi
+      - --cpu=1
+      - --min-instances=0
+      - --max-instances=10
+      - --concurrency=80
+      - --timeout=60s
+      - --add-cloudsql-instances=${_CLOUDSQL_INSTANCE}
+      - --set-secrets=DATABASE_URL=quick-quartz-db-url:latest,JWT_SECRET=quick-quartz-jwt-secret:latest
+      - --set-env-vars=^|^NODE_ENV=production|PORT=8080|ALLOW_SIGNUPS=false|ALLOW_FIRST_USER_ADMIN=false|COOKIE_SECURE=true|COOKIE_SAME_SITE=lax|TRUST_PROXY=1|CORS_ORIGINS=${_CORS_ORIGINS}
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}:$COMMIT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}:latest
+
+timeout: 600s
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
