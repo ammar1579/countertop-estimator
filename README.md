@@ -52,6 +52,8 @@ pnpm check                # TypeScript check
 pnpm test                 # Vitest tests
 pnpm build                # Production build
 pnpm start                # Run built production server
+pnpm promote-admin EMAIL  # Promote an existing user to admin
+pnpm migrate:prod         # Run bundled migrations without Drizzle CLI
 pnpm drizzle-kit migrate  # Apply migrations
 pnpm db:generate          # Generate Drizzle migrations
 pnpm db:migrate           # Apply Drizzle migrations
@@ -106,3 +108,4 @@ Expected response:
 ## Deployment
 
 See `DEPLOYMENT.md` for Google Cloud Run and Cloud SQL instructions.
+See `GITHUB_LAUNCH_CHECKLIST.md` and `GOOGLE_CLOUD_LAUNCH_CHECKLIST.md` for launch steps.

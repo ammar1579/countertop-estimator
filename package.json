@@ -5,11 +5,13 @@
   "license": "MIT",
   "scripts": {
     "dev": "NODE_ENV=development tsx watch server/_core/index.ts",
-    "build": "vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "build": "vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist && esbuild scripts/promote-admin.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/scripts/promote-admin.js && esbuild scripts/migrate.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/scripts/migrate.js",
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
+    "promote-admin": "tsx scripts/promote-admin.ts",
+    "migrate:prod": "tsx scripts/migrate.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit generate && drizzle-kit migrate"

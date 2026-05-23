@@ -36,6 +36,7 @@ RUN pnpm install --frozen-lockfile --prod
 
 # Copy built artifacts from builder stage
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/drizzle ./drizzle
 
 # Cloud Run injects PORT. Keep the container default aligned with Cloud Run.
 EXPOSE 8080

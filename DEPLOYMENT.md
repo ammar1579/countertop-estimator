@@ -112,6 +112,8 @@ Edit substitutions in `cloudbuild.yaml`, especially:
 - `_SERVICE`
 - `_CLOUDSQL_INSTANCE`
 - `_CORS_ORIGINS`
+- `_RUNTIME_SERVICE_ACCOUNT`
+- `_ADMIN_EMAILS`
 
 Then run:
 
@@ -123,7 +125,27 @@ Cloud Run will send traffic to port `8080`, and the app listens on `0.0.0.0:${PO
 
 ## Run Migrations Against Production
 
-Run migrations from a trusted machine that can reach Cloud SQL, or run a one-off Cloud Run job later. For a direct local run through Cloud SQL Auth Proxy:
+Migrations are not run automatically on app startup. Use a Cloud Run Job with the production image:
+
+```bash
+IMAGE_URL="us-central1-docker.pkg.dev/PROJECT_ID/quick-quartz/app:latest"
+
+gcloud run jobs deploy quick-quartz-migrate \
+  --image="$IMAGE_URL" \
+  --region=us-central1 \
+  --service-account=quick-quartz-run@PROJECT_ID.iam.gserviceaccount.com \
+  --set-cloudsql-instances=PROJECT_ID:us-central1:quick-quartz-db \
+  --set-secrets=DATABASE_URL=quick-quartz-db-url:latest \
+  --set-env-vars=NODE_ENV=production \
+  --command=node \
+  --args=dist/scripts/migrate.js \
+  --max-retries=0 \
+  --task-timeout=10m
+
+gcloud run jobs execute quick-quartz-migrate --region=us-central1 --wait
+```
+
+Or run migrations from a trusted machine that can reach Cloud SQL. For a direct local run through Cloud SQL Auth Proxy:
 
 ```bash
 cloud-sql-proxy PROJECT_ID:REGION:INSTANCE --port 3306
@@ -135,6 +157,23 @@ Seed default local/demo price lists only when appropriate:
 ```bash
 mysql -h 127.0.0.1 -u DB_USER -p quickquartz < seed.sql
 ```
+
+## First Admin
+
+Preferred production setup:
+
+1. Deploy with `_ADMIN_EMAILS=owner@example.com`.
+2. Keep `ALLOW_SIGNUPS=false` and `ALLOW_FIRST_USER_ADMIN=false`.
+3. Register at `/login` with the owner email.
+4. The matching account is created with the `admin` role.
+
+If the user already exists, promote it with the bundled script:
+
+```bash
+DATABASE_URL=mysql://DB_USER:DB_PASSWORD@127.0.0.1:3306/quickquartz pnpm promote-admin owner@example.com
+```
+
+For a Cloud Run Job version, use `GOOGLE_CLOUD_LAUNCH_CHECKLIST.md`.
 
 ## Post-Deploy Checks
 

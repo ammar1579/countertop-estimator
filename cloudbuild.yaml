@@ -7,6 +7,8 @@
 #   _IMAGE=app
 #   _CLOUDSQL_INSTANCE=PROJECT_ID:REGION:INSTANCE
 #   _CORS_ORIGINS=https://your-service-url-or-domain
+#   _RUNTIME_SERVICE_ACCOUNT=quick-quartz-run@PROJECT_ID.iam.gserviceaccount.com
+#   _ADMIN_EMAILS=owner@example.com
 #
 # Required Secret Manager secrets:
 #   quick-quartz-db-url
@@ -17,8 +19,10 @@ substitutions:
   _SERVICE: quick-quartz-app
   _REPOSITORY: quick-quartz
   _IMAGE: app
-  _CLOUDSQL_INSTANCE: $PROJECT_ID:us-central1:quick-quartz-db
+  _CLOUDSQL_INSTANCE: PROJECT_ID:us-central1:quick-quartz-db
   _CORS_ORIGINS: https://quick-quartz.example.com
+  _RUNTIME_SERVICE_ACCOUNT: quick-quartz-run@PROJECT_ID.iam.gserviceaccount.com
+  _ADMIN_EMAILS: owner@example.com
 
 steps:
   - name: gcr.io/cloud-builders/docker
@@ -57,9 +61,10 @@ steps:
       - --max-instances=10
       - --concurrency=80
       - --timeout=60s
+      - --service-account=${_RUNTIME_SERVICE_ACCOUNT}
       - --add-cloudsql-instances=${_CLOUDSQL_INSTANCE}
       - --set-secrets=DATABASE_URL=quick-quartz-db-url:latest,JWT_SECRET=quick-quartz-jwt-secret:latest
-      - --set-env-vars=^|^NODE_ENV=production|PORT=8080|ALLOW_SIGNUPS=false|ALLOW_FIRST_USER_ADMIN=false|COOKIE_SECURE=true|COOKIE_SAME_SITE=lax|TRUST_PROXY=1|CORS_ORIGINS=${_CORS_ORIGINS}
+      - --set-env-vars=^|^NODE_ENV=production|PORT=8080|ALLOW_SIGNUPS=false|ALLOW_FIRST_USER_ADMIN=false|COOKIE_SECURE=true|COOKIE_SAME_SITE=lax|TRUST_PROXY=1|CORS_ORIGINS=${_CORS_ORIGINS}|ADMIN_EMAILS=${_ADMIN_EMAILS}
 
 images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}:$COMMIT_SHA
