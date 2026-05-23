@@ -47,7 +47,7 @@ import {
   getRevenueByMonth,
   getSalespersonMetrics,
   logQuoteEmail,
-  replaceQuoteLineItems,
+  saveQuoteLineItems,
   saveQuoteRevision,
   updateClient,
   updateInventoryItem,
@@ -312,10 +312,6 @@ export const appRouter = router({
           paymentTerms: z.string().optional(),
           expiresAt: z.date().optional(),
           canvasData: z.any().optional(),
-          subtotal: z.string().optional(),
-          taxAmount: z.string().optional(),
-          totalAmount: z.string().optional(),
-          totalSqft: z.string().optional(),
           signatureData: z.string().optional(),
           signedAt: z.date().optional(),
           priceListId: z.number().optional(),
@@ -360,19 +356,19 @@ export const appRouter = router({
           quoteData.priceList?.taxRate ?? "0.1300",
         );
 
-        await replaceQuoteLineItems(
+        await saveQuoteLineItems(
           input.quoteId,
           totals.items.map((item) => ({
             ...item,
             quoteId: input.quoteId,
           })),
+          {
+            subtotal: totals.subtotal,
+            taxAmount: totals.taxAmount,
+            totalAmount: totals.totalAmount,
+            totalSqft: totals.totalSqft,
+          },
         );
-        await updateQuote(input.quoteId, {
-          subtotal: totals.subtotal,
-          taxAmount: totals.taxAmount,
-          totalAmount: totals.totalAmount,
-          totalSqft: totals.totalSqft,
-        });
 
         return totals;
       }),

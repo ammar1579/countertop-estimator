@@ -88,7 +88,7 @@
 
 ### Task 6: Verification
 
-- [ ] Run `pnpm install`.
+- [ ] Run `pnpm install --frozen-lockfile`.
 - [ ] Run `pnpm drizzle-kit generate`.
 - [ ] Run `pnpm check`.
 - [ ] Run `pnpm test`.

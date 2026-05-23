@@ -22,7 +22,7 @@ Prerequisites:
 Setup:
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 cp .env.example .env
 openssl rand -hex 32
 ```

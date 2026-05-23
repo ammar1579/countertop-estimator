@@ -55,6 +55,7 @@ vi.mock("./db", () => ({
   getQuoteEmailLogs: vi.fn().mockResolvedValue([]),
   createQuote: vi.fn().mockResolvedValue({ id: 42, quoteNumber: "QQ-2026-001", revision: 1 }),
   updateQuote: vi.fn().mockResolvedValue(undefined),
+  replaceQuoteLineItems: vi.fn().mockResolvedValue(undefined),
   saveQuoteLineItems: vi.fn().mockResolvedValue(undefined),
   saveQuoteRevision: vi.fn().mockResolvedValue(undefined),
   logQuoteEmail: vi.fn().mockResolvedValue(undefined),
@@ -336,6 +337,117 @@ describe("quotes", () => {
       totalSqft: "25.00",
     });
     expect(result).toMatchObject({ id: 42, quoteNumber: "QQ-2026-001" });
+  });
+
+  it("ignores client-controlled financial totals when updating a quote", async () => {
+    const { updateQuote } = await import("./db");
+    const persistedQuote = {
+      id: 42,
+      title: "Kitchen Quote",
+      subtotal: "1305.00",
+      taxAmount: "169.65",
+      totalAmount: "1474.65",
+      totalSqft: "25.00",
+    };
+    vi.mocked(updateQuote).mockImplementationOnce(async (_id, data) => {
+      Object.assign(persistedQuote, data);
+    });
+    const caller = appRouter.createCaller(makeCtx(makeUser()));
+
+    await caller.quotes.update({
+      id: 42,
+      title: "Retitled Kitchen Quote",
+      subtotal: "999999.99",
+      taxAmount: "999999.99",
+      totalAmount: "999999.99",
+      totalSqft: "999999.99",
+    } as any);
+
+    expect(updateQuote).toHaveBeenCalledWith(42, {
+      title: "Retitled Kitchen Quote",
+    });
+    expect(persistedQuote).toMatchObject({
+      title: "Retitled Kitchen Quote",
+      subtotal: "1305.00",
+      taxAmount: "169.65",
+      totalAmount: "1474.65",
+      totalSqft: "25.00",
+    });
+  });
+
+  it("recalculates quote line items on the server and persists them atomically", async () => {
+    const {
+      getQuoteById,
+      replaceQuoteLineItems,
+      saveQuoteLineItems,
+      updateQuote,
+    } = await import("./db");
+    vi.mocked(getQuoteById).mockResolvedValueOnce({
+      quote: { id: 42 },
+      client: null,
+      priceList: { taxRate: "0.1300" },
+    } as any);
+    const caller = appRouter.createCaller(makeCtx(makeUser()));
+
+    const result = await caller.quotes.saveLineItems({
+      quoteId: 42,
+      items: [
+        {
+          areaLabel: "Kitchen",
+          priceListItemId: 1,
+          category: "material",
+          description: "Quartz Material",
+          quantity: "25",
+          unit: "sqft",
+          pricePerUnit: "45",
+          lineTotal: "1.00",
+          sortOrder: 0,
+        },
+        {
+          areaLabel: "Kitchen",
+          priceListItemId: 2,
+          category: "edge",
+          description: "Eased Edge",
+          quantity: "15",
+          unit: "linft",
+          pricePerUnit: "12",
+          lineTotal: "1.00",
+          sortOrder: 1,
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      subtotal: "1305.00",
+      taxAmount: "169.65",
+      totalAmount: "1474.65",
+      totalSqft: "25.00",
+    });
+    expect(saveQuoteLineItems).toHaveBeenCalledWith(
+      42,
+      [
+        expect.objectContaining({
+          quoteId: 42,
+          quantity: "25.00",
+          pricePerUnit: "45.00",
+          lineTotal: "1125.00",
+        }),
+        expect.objectContaining({
+          quoteId: 42,
+          quantity: "15.00",
+          pricePerUnit: "12.00",
+          lineTotal: "180.00",
+        }),
+      ],
+      {
+        subtotal: "1305.00",
+        taxAmount: "169.65",
+        totalAmount: "1474.65",
+        totalSqft: "25.00",
+      },
+    );
+    expect(replaceQuoteLineItems).not.toHaveBeenCalled();
+    expect(updateQuote).not.toHaveBeenCalled();
   });
 
   it("converts a quote to an order", async () => {
