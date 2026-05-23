@@ -26,6 +26,8 @@ import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
+type QuoteFinancialTotals = Pick<InsertQuote, "subtotal" | "taxAmount" | "totalAmount" | "totalSqft">;
+
 export async function getDb() {
   if (!_db && ENV.databaseUrl) {
     try {
@@ -335,6 +337,22 @@ export async function replaceQuoteLineItems(quoteId: number, items: InsertQuoteL
   if (items.length > 0) {
     await db.insert(quoteLineItems).values(items);
   }
+}
+
+export async function saveQuoteLineItems(
+  quoteId: number,
+  items: InsertQuoteLineItem[],
+  totals: QuoteFinancialTotals,
+) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.transaction(async (tx) => {
+    await tx.delete(quoteLineItems).where(eq(quoteLineItems.quoteId, quoteId));
+    if (items.length > 0) {
+      await tx.insert(quoteLineItems).values(items);
+    }
+    await tx.update(quotes).set(totals).where(eq(quotes.id, quoteId));
+  });
 }
 
 export async function saveQuoteRevision(quoteId: number, revision: number, changedBy: number | null, changeNote: string, snapshotData: unknown) {
