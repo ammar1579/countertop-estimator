@@ -36,6 +36,48 @@ type ConvertQuoteToOrderInput = {
   orderNumber: string;
 };
 
+export const ORDER_QUOTE_ID_UNIQUE_INDEX_NAME = "orders_quoteId_unique";
+
+export const ORDER_QUOTE_ID_DUPLICATE_AUDIT_SQL = `
+SELECT quoteId, COUNT(*) AS count
+FROM orders
+WHERE quoteId IS NOT NULL
+GROUP BY quoteId
+HAVING COUNT(*) > 1;
+`.trim();
+
+export type DuplicateOrderQuoteId = {
+  quoteId: number;
+  count: number;
+};
+
+export function isDuplicateOrderQuoteIdError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; errno?: unknown; sqlMessage?: unknown; message?: unknown };
+  const isDuplicateKey = candidate.code === "ER_DUP_ENTRY" || candidate.errno === 1062;
+  if (!isDuplicateKey) return false;
+
+  const message = [candidate.sqlMessage, candidate.message]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  return message.includes(ORDER_QUOTE_ID_UNIQUE_INDEX_NAME);
+}
+
+export async function withOrderQuoteUniquenessFallback<T>(
+  quoteId: number,
+  createOrderAttempt: () => Promise<T>,
+  loadExistingOrder: (quoteId: number) => Promise<T | undefined>,
+): Promise<T> {
+  try {
+    return await createOrderAttempt();
+  } catch (error) {
+    if (!isDuplicateOrderQuoteIdError(error)) throw error;
+    const existingOrder = await loadExistingOrder(quoteId);
+    if (existingOrder) return existingOrder;
+    throw error;
+  }
+}
+
 export async function getDb() {
   if (!_db && ENV.databaseUrl) {
     try {
@@ -423,6 +465,20 @@ export async function getOrderByQuoteId(quoteId: number) {
   return result[0];
 }
 
+export async function getDuplicateOrderQuoteIds(): Promise<DuplicateOrderQuoteId[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      quoteId: orders.quoteId,
+      count: sql<number>`COUNT(*)`,
+    })
+    .from(orders)
+    .where(sql`${orders.quoteId} IS NOT NULL`)
+    .groupBy(orders.quoteId)
+    .having(sql`COUNT(*) > 1`);
+}
+
 export async function createOrder(data: InsertOrder) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -458,47 +514,55 @@ export async function convertQuoteToOrder({
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
 
-  return db.transaction(async (tx) => {
-    const existingOrder = await tx.select().from(orders).where(eq(orders.quoteId, quoteId)).limit(1);
-    if (existingOrder[0]) return existingOrder[0];
+  return withOrderQuoteUniquenessFallback(
+    quoteId,
+    () =>
+      db.transaction(async (tx) => {
+        const existingOrder = await tx.select().from(orders).where(eq(orders.quoteId, quoteId)).limit(1);
+        if (existingOrder[0]) return existingOrder[0];
 
-    const quoteResult = await tx.select().from(quotes).where(eq(quotes.id, quoteId)).limit(1);
-    const quote = quoteResult[0];
-    if (!quote) throw new Error("QUOTE_NOT_FOUND");
+        const quoteResult = await tx.select().from(quotes).where(eq(quotes.id, quoteId)).limit(1);
+        const quote = quoteResult[0];
+        if (!quote) throw new Error("QUOTE_NOT_FOUND");
 
-    await tx.insert(orders).values({
-      orderNumber,
-      quoteId: quote.id,
-      clientId: quote.clientId,
-      salespersonId: quote.salespersonId ?? fallbackSalespersonId,
-      title: quote.title,
-      priceListId: quote.priceListId,
-      totalSqft: quote.totalSqft ?? "0.00",
-      subtotal: quote.subtotal ?? "0.00",
-      taxAmount: quote.taxAmount ?? "0.00",
-      totalAmount: quote.totalAmount ?? "0.00",
-      projectStatus: "Pending",
-      paymentStatus: "Unpaid",
-    });
+        await tx.insert(orders).values({
+          orderNumber,
+          quoteId: quote.id,
+          clientId: quote.clientId,
+          salespersonId: quote.salespersonId ?? fallbackSalespersonId,
+          title: quote.title,
+          priceListId: quote.priceListId,
+          totalSqft: quote.totalSqft ?? "0.00",
+          subtotal: quote.subtotal ?? "0.00",
+          taxAmount: quote.taxAmount ?? "0.00",
+          totalAmount: quote.totalAmount ?? "0.00",
+          projectStatus: "Pending",
+          paymentStatus: "Unpaid",
+        });
 
-    const createdOrder = await tx.select().from(orders).where(eq(orders.orderNumber, orderNumber)).limit(1);
-    const order = createdOrder[0];
-    if (!order) throw new Error("Created order could not be loaded");
+        const createdOrder = await tx.select().from(orders).where(eq(orders.orderNumber, orderNumber)).limit(1);
+        const order = createdOrder[0];
+        if (!order) throw new Error("Created order could not be loaded");
 
-    const quoteItems = await tx
-      .select()
-      .from(quoteLineItems)
-      .where(eq(quoteLineItems.quoteId, quoteId))
-      .orderBy(asc(quoteLineItems.sortOrder));
-    const snapshotItems = buildOrderLineItemSnapshots(order.id, quoteItems);
-    if (snapshotItems.length > 0) {
-      await tx.insert(orderLineItems).values(snapshotItems);
-    }
+        const quoteItems = await tx
+          .select()
+          .from(quoteLineItems)
+          .where(eq(quoteLineItems.quoteId, quoteId))
+          .orderBy(asc(quoteLineItems.sortOrder));
+        const snapshotItems = buildOrderLineItemSnapshots(order.id, quoteItems);
+        if (snapshotItems.length > 0) {
+          await tx.insert(orderLineItems).values(snapshotItems);
+        }
 
-    await tx.update(quotes).set({ status: "Active" }).where(eq(quotes.id, quoteId));
+        await tx.update(quotes).set({ status: "Active" }).where(eq(quotes.id, quoteId));
 
-    return order;
-  });
+        return order;
+      }),
+    async (existingQuoteId) => {
+      const existingOrder = await db.select().from(orders).where(eq(orders.quoteId, existingQuoteId)).limit(1);
+      return existingOrder[0];
+    },
+  );
 }
 
 export async function getOrderLineItems(orderId: number) {

@@ -1,0 +1,11 @@
+-- Preflight audit before applying this migration:
+-- SELECT `quoteId`, COUNT(*) AS `count`
+-- FROM `orders`
+-- WHERE `quoteId` IS NOT NULL
+-- GROUP BY `quoteId`
+-- HAVING COUNT(*) > 1;
+--
+-- If this query returns rows, resolve those duplicate orders before creating
+-- the unique constraint below. MySQL will reject the ALTER TABLE while
+-- duplicate `quoteId` values exist.
+ALTER TABLE `orders` ADD CONSTRAINT `orders_quoteId_unique` UNIQUE(`quoteId`);

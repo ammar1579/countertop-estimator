@@ -8,6 +8,7 @@ import {
   decimal,
   boolean,
   json,
+  uniqueIndex,
 } from "drizzle-orm/mysql-core";
 
 // ─── Users ───────────────────────────────────────────────────────────────────
@@ -186,7 +187,9 @@ export const orders = mysqlTable("orders", {
   saleDate: timestamp("saleDate").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => [
+  uniqueIndex("orders_quoteId_unique").on(table.quoteId),
+]);
 
 export type Order = typeof orders.$inferSelect;
 export type InsertOrder = typeof orders.$inferInsert;

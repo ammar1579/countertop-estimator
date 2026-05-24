@@ -60,6 +60,8 @@ This document describes the business rules implemented by the current Quick Quar
 - Converted orders start with payment status `Unpaid`.
 - Converting a quote updates the source quote status to `Active`.
 - Re-converting an already converted quote returns the existing order instead of creating a duplicate order.
+- The database enforces one order per quote with a unique constraint on `orders.quoteId`.
+- Before applying the uniqueness migration, duplicate source quote ids must be audited and resolved; existing duplicates would cause the migration to fail.
 - Orders read line items from their own order line item snapshots, not from mutable quote line items.
 - Project status values are `Pending`, `In Progress`, `Completed`, and `Invoiced`.
 - Payment status values are `Unpaid`, `Partial`, and `Paid`.
