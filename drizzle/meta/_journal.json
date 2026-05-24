@@ -29,6 +29,13 @@
       "when": 1779517623702,
       "tag": "0003_quick_human_robot",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1779584550351,
+      "tag": "0004_tearful_the_captain",
+      "breakpoints": true
     }
   ]
 }

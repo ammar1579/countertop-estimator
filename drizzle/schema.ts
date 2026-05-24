@@ -191,6 +191,26 @@ export const orders = mysqlTable("orders", {
 export type Order = typeof orders.$inferSelect;
 export type InsertOrder = typeof orders.$inferInsert;
 
+// ─── Order Line Item Snapshots ───────────────────────────────────────────────
+export const orderLineItems = mysqlTable("orderLineItems", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull(),
+  sourceQuoteLineItemId: int("sourceQuoteLineItemId"),
+  areaLabel: varchar("areaLabel", { length: 100 }).default("Area #1"),
+  priceListItemId: int("priceListItemId"),
+  category: mysqlEnum("category", ["material", "edge", "splash", "accessory", "fixture"]).notNull(),
+  description: varchar("description", { length: 300 }).notNull(),
+  quantity: decimal("quantity", { precision: 10, scale: 2 }).notNull(),
+  unit: mysqlEnum("unit", ["sqft", "linft", "each"]).notNull(),
+  pricePerUnit: decimal("pricePerUnit", { precision: 10, scale: 2 }).notNull(),
+  lineTotal: decimal("lineTotal", { precision: 10, scale: 2 }).notNull(),
+  sortOrder: int("sortOrder").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type OrderLineItem = typeof orderLineItems.$inferSelect;
+export type InsertOrderLineItem = typeof orderLineItems.$inferInsert;
+
 // ─── Payments ─────────────────────────────────────────────────────────────────
 export const payments = mysqlTable("payments", {
   id: int("id").autoincrement().primaryKey(),

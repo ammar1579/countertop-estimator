@@ -55,10 +55,12 @@ This document describes the business rules implemented by the current Quick Quar
 - Orders are created by converting an existing quote.
 - Order numbers are generated as `ORD-YYYY-NNNN` when the database is available.
 - Converted orders copy the quote's client, salesperson, title, price list, square feet, subtotal, tax, and total.
+- Converted orders snapshot the quote's current line items into order-owned line items at conversion time.
 - Converted orders start with project status `Pending`.
 - Converted orders start with payment status `Unpaid`.
 - Converting a quote updates the source quote status to `Active`.
-- Orders read line items from their source quote rather than storing a separate order line item copy.
+- Re-converting an already converted quote returns the existing order instead of creating a duplicate order.
+- Orders read line items from their own order line item snapshots, not from mutable quote line items.
 - Project status values are `Pending`, `In Progress`, `Completed`, and `Invoiced`.
 - Payment status values are `Unpaid`, `Partial`, and `Paid`.
 
@@ -90,6 +92,5 @@ This document describes the business rules implemented by the current Quick Quar
 ## Current Limits
 
 - Waste factor is stored on price lists but is not currently applied by the pricing engine.
-- Orders do not snapshot line items independently; they reference the source quote line items.
 - Quote revision snapshots are caller-provided and are not yet automatically generated from canonical server state.
 - The pricing engine does not yet implement minimum charges, discounts, jurisdiction-specific tax rules, locked revisions, or slab optimization.

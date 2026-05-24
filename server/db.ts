@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import {
   clients,
   inventory,
+  orderLineItems,
   orders,
   payments,
   priceListItems,
@@ -15,6 +16,7 @@ import {
   type InsertClient,
   type InsertInventory,
   type InsertOrder,
+  type InsertOrderLineItem,
   type InsertPayment,
   type InsertPriceList,
   type InsertPriceListItem,
@@ -27,6 +29,12 @@ import { ENV } from "./_core/env";
 let _db: ReturnType<typeof drizzle> | null = null;
 
 type QuoteFinancialTotals = Pick<InsertQuote, "subtotal" | "taxAmount" | "totalAmount" | "totalSqft">;
+
+type ConvertQuoteToOrderInput = {
+  quoteId: number;
+  fallbackSalespersonId: number;
+  orderNumber: string;
+};
 
 export async function getDb() {
   if (!_db && ENV.databaseUrl) {
@@ -408,12 +416,99 @@ export async function getOrderById(id: number) {
   return result[0];
 }
 
+export async function getOrderByQuoteId(quoteId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(orders).where(eq(orders.quoteId, quoteId)).limit(1);
+  return result[0];
+}
+
 export async function createOrder(data: InsertOrder) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   await db.insert(orders).values(data);
   const result = await db.select().from(orders).where(eq(orders.orderNumber, data.orderNumber!)).limit(1);
   return result[0];
+}
+
+export function buildOrderLineItemSnapshots(
+  orderId: number,
+  items: Array<typeof quoteLineItems.$inferSelect>,
+): InsertOrderLineItem[] {
+  return items.map((item) => ({
+    orderId,
+    sourceQuoteLineItemId: item.id,
+    areaLabel: item.areaLabel,
+    priceListItemId: item.priceListItemId,
+    category: item.category,
+    description: item.description,
+    quantity: item.quantity,
+    unit: item.unit,
+    pricePerUnit: item.pricePerUnit,
+    lineTotal: item.lineTotal,
+    sortOrder: item.sortOrder,
+  }));
+}
+
+export async function convertQuoteToOrder({
+  quoteId,
+  fallbackSalespersonId,
+  orderNumber,
+}: ConvertQuoteToOrderInput) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  return db.transaction(async (tx) => {
+    const existingOrder = await tx.select().from(orders).where(eq(orders.quoteId, quoteId)).limit(1);
+    if (existingOrder[0]) return existingOrder[0];
+
+    const quoteResult = await tx.select().from(quotes).where(eq(quotes.id, quoteId)).limit(1);
+    const quote = quoteResult[0];
+    if (!quote) throw new Error("QUOTE_NOT_FOUND");
+
+    await tx.insert(orders).values({
+      orderNumber,
+      quoteId: quote.id,
+      clientId: quote.clientId,
+      salespersonId: quote.salespersonId ?? fallbackSalespersonId,
+      title: quote.title,
+      priceListId: quote.priceListId,
+      totalSqft: quote.totalSqft ?? "0.00",
+      subtotal: quote.subtotal ?? "0.00",
+      taxAmount: quote.taxAmount ?? "0.00",
+      totalAmount: quote.totalAmount ?? "0.00",
+      projectStatus: "Pending",
+      paymentStatus: "Unpaid",
+    });
+
+    const createdOrder = await tx.select().from(orders).where(eq(orders.orderNumber, orderNumber)).limit(1);
+    const order = createdOrder[0];
+    if (!order) throw new Error("Created order could not be loaded");
+
+    const quoteItems = await tx
+      .select()
+      .from(quoteLineItems)
+      .where(eq(quoteLineItems.quoteId, quoteId))
+      .orderBy(asc(quoteLineItems.sortOrder));
+    const snapshotItems = buildOrderLineItemSnapshots(order.id, quoteItems);
+    if (snapshotItems.length > 0) {
+      await tx.insert(orderLineItems).values(snapshotItems);
+    }
+
+    await tx.update(quotes).set({ status: "Active" }).where(eq(quotes.id, quoteId));
+
+    return order;
+  });
+}
+
+export async function getOrderLineItems(orderId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(orderLineItems)
+    .where(eq(orderLineItems.orderId, orderId))
+    .orderBy(asc(orderLineItems.sortOrder));
 }
 
 export async function updateOrder(id: number, data: Partial<InsertOrder>) {
