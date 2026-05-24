@@ -50,6 +50,7 @@ The primary tables are defined in `drizzle/schema.ts`:
 - `quoteRevisions`: quote revision snapshots and change log entries.
 - `quoteEmailLogs`: outbound quote email tracking.
 - `orders`: converted quote sales with project status, payment status, totals, and dates.
+- `orderLineItems`: immutable order line item snapshots copied from quote line items at conversion.
 - `payments`: recorded order payments.
 - `inventory`: slab/color inventory and low-stock settings.
 
@@ -64,9 +65,10 @@ The database connection is created lazily from `DATABASE_URL` through Drizzle's 
 5. Quote line items are saved through `quotes.saveLineItems`.
 6. The server recomputes line totals, subtotal, tax, total, and material square feet before persisting totals.
 7. Quote revisions and email logs can be recorded.
-8. A quote can be converted to an order, copying quote totals and linking the order to the source quote.
-9. Payments update order `amountPaid` and payment status.
-10. Analytics aggregate quotes, orders, revenue, conversion, salesperson metrics, and low-stock inventory.
+8. A quote can be converted to an order, copying quote totals, snapshotting quote line items, and linking the order to the source quote.
+9. Order detail line items are read from `orderLineItems`, not from mutable quote line items.
+10. Payments update order `amountPaid` and payment status.
+11. Analytics aggregate quotes, orders, revenue, conversion, salesperson metrics, and low-stock inventory.
 
 ## Build And Delivery
 

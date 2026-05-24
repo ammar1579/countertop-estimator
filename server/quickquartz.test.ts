@@ -65,6 +65,7 @@ vi.mock("./db", () => ({
   createOrder: vi.fn().mockResolvedValue({ id: 99, orderNumber: "ORD-2026-001" }),
   getOrders: vi.fn().mockResolvedValue([]),
   getOrderById: vi.fn().mockResolvedValue(undefined),
+  getOrderLineItems: vi.fn().mockResolvedValue([]),
   getOrderPayments: vi.fn().mockResolvedValue([]),
   updateOrder: vi.fn().mockResolvedValue(undefined),
   getInventory: vi.fn().mockResolvedValue([]),
@@ -450,41 +451,99 @@ describe("quotes", () => {
     expect(updateQuote).not.toHaveBeenCalled();
   });
 
-  it("converts a quote to an order", async () => {
-    // Mock getQuoteById to return a valid quote for this test
-    const { getQuoteById, convertQuoteToOrder } = await import("./db");
-    vi.mocked(getQuoteById).mockResolvedValueOnce({
-      quote: {
-        id: 42,
-        quoteNumber: "QQ-2026-001",
-        clientId: 1,
-        priceListId: 1,
-        title: "Kitchen Reno",
-        status: "Active" as const,
-        revision: 1,
-        subtotal: "1305.00",
-        taxAmount: "169.65",
-        totalAmount: "1474.65",
-        totalSqft: "25.00",
-        notes: null,
-        paymentTerms: null,
-        canvasData: null,
-        expiresAt: null,
-        sentAt: null,
-        lastViewedAt: null,
-        viewCount: 0,
-        signatureData: null,
-        signedAt: null,
-        salespersonId: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-      client: null,
-      priceList: null,
+  it("converts a quote to an order through the atomic snapshot helper", async () => {
+    const {
+      convertQuoteToOrder,
+      createOrder,
+      getQuoteById,
+      updateQuote,
+    } = await import("./db");
+    const caller = appRouter.createCaller(makeCtx(makeUser()));
+
+    const result = await caller.quotes.convertToOrder({ quoteId: 42 });
+
+    expect(result).toMatchObject({ id: 99, orderNumber: "ORD-2026-001" });
+    expect(convertQuoteToOrder).toHaveBeenCalledWith({
+      quoteId: 42,
+      fallbackSalespersonId: 1,
+      orderNumber: "ORD-2026-001",
+    });
+    expect(getQuoteById).not.toHaveBeenCalled();
+    expect(createOrder).not.toHaveBeenCalled();
+    expect(updateQuote).not.toHaveBeenCalled();
+  });
+
+  it("returns an existing order when converting the same quote again", async () => {
+    const { convertQuoteToOrder, createOrder } = await import("./db");
+    vi.mocked(convertQuoteToOrder).mockResolvedValue({
+      id: 99,
+      orderNumber: "ORD-2026-001",
+      quoteId: 42,
     } as any);
     const caller = appRouter.createCaller(makeCtx(makeUser()));
-    const result = await caller.quotes.convertToOrder({ quoteId: 42 });
-    expect(result).toMatchObject({ id: 99, orderNumber: "ORD-2026-001" });
+
+    const first = await caller.quotes.convertToOrder({ quoteId: 42 });
+    const second = await caller.quotes.convertToOrder({ quoteId: 42 });
+
+    expect(first).toMatchObject({ id: 99, orderNumber: "ORD-2026-001" });
+    expect(second).toMatchObject({ id: 99, orderNumber: "ORD-2026-001" });
+    expect(convertQuoteToOrder).toHaveBeenCalledTimes(2);
+    expect(createOrder).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Order Router Tests ───────────────────────────────────────────────────────
+describe("orders", () => {
+  it("returns snapshotted order line items instead of mutable quote line items", async () => {
+    const {
+      getOrderLineItems,
+      getQuoteLineItems,
+    } = await import("./db");
+    vi.mocked(getOrderLineItems).mockResolvedValueOnce([
+      {
+        id: 500,
+        orderId: 99,
+        sourceQuoteLineItemId: 10,
+        areaLabel: "Kitchen",
+        category: "material",
+        description: "Accepted Snapshot",
+        quantity: "25.00",
+        unit: "sqft",
+        pricePerUnit: "45.00",
+        lineTotal: "1125.00",
+        sortOrder: 0,
+        createdAt: new Date("2026-01-01"),
+      },
+    ] as any);
+    vi.mocked(getQuoteLineItems).mockResolvedValueOnce([
+      {
+        id: 10,
+        quoteId: 42,
+        areaLabel: "Kitchen",
+        category: "material",
+        description: "Edited Quote Line",
+        quantity: "99.00",
+        unit: "sqft",
+        pricePerUnit: "1.00",
+        lineTotal: "99.00",
+        sortOrder: 0,
+        createdAt: new Date("2026-01-02"),
+      },
+    ] as any);
+    const caller = appRouter.createCaller(makeCtx(makeUser()));
+
+    const result = await caller.orders.getLineItems({ orderId: 99 });
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        orderId: 99,
+        sourceQuoteLineItemId: 10,
+        description: "Accepted Snapshot",
+        lineTotal: "1125.00",
+      }),
+    ]);
+    expect(getOrderLineItems).toHaveBeenCalledWith(99);
+    expect(getQuoteLineItems).not.toHaveBeenCalled();
   });
 });
 

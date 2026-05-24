@@ -13,11 +13,11 @@ import { calculateQuoteTotals } from "./pricing";
 import {
   createClient,
   createInventoryItem,
-  createOrder,
   createPayment,
   createPriceList,
   createPriceListItem,
   createQuote,
+  convertQuoteToOrder,
   deleteClient,
   deleteInventoryItem,
   deletePriceListItem,
@@ -32,6 +32,7 @@ import {
   getInventory,
   getLowStockInventory,
   getOrderById,
+  getOrderLineItems,
   getOrderPayments,
   getOrders,
   getPriceListById,
@@ -408,26 +409,19 @@ export const appRouter = router({
     convertToOrder: protectedProcedure
       .input(z.object({ quoteId: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        const quoteData = await getQuoteById(input.quoteId);
-        if (!quoteData) throw new TRPCError({ code: "NOT_FOUND", message: "Quote not found" });
-        const { quote } = quoteData;
         const orderNumber = await generateOrderNumber();
-        const order = await createOrder({
-          orderNumber,
-          quoteId: quote.id,
-          clientId: quote.clientId,
-          salespersonId: quote.salespersonId ?? ctx.user.id,
-          title: quote.title,
-          priceListId: quote.priceListId,
-          totalSqft: quote.totalSqft ?? "0.00",
-          subtotal: quote.subtotal ?? "0.00",
-          taxAmount: quote.taxAmount ?? "0.00",
-          totalAmount: quote.totalAmount ?? "0.00",
-          projectStatus: "Pending",
-          paymentStatus: "Unpaid",
-        });
-        await updateQuote(quote.id, { status: "Active" });
-        return order;
+        try {
+          return await convertQuoteToOrder({
+            quoteId: input.quoteId,
+            fallbackSalespersonId: ctx.user.id,
+            orderNumber,
+          });
+        } catch (error) {
+          if (error instanceof Error && error.message === "QUOTE_NOT_FOUND") {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Quote not found" });
+          }
+          throw error;
+        }
       }),
   }),
 
@@ -453,12 +447,7 @@ export const appRouter = router({
 
     getLineItems: protectedProcedure
       .input(z.object({ orderId: z.number() }))
-      .query(async ({ input }) => {
-        // Orders share line items with their source quote
-        const orderData = await getOrderById(input.orderId);
-        if (!orderData) return [];
-        return getQuoteLineItems(orderData.order.quoteId);
-      }),
+      .query(({ input }) => getOrderLineItems(input.orderId)),
 
     update: protectedProcedure
       .input(
